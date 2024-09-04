@@ -1,0 +1,42 @@
+pipeline {
+    agent any
+
+    stages {
+        stage('Cloning Git') {
+            steps {
+                checkout([$class: 'GitSCM', branches: [[name: '*/main']], doGenerateSubmoduleConfigurations: false, extensions: [], submoduleCfg: [], userRemoteConfigs: [[credentialsId: '', url: 'https://github.com/yair232/pipeline.git']]])
+            }
+        }
+        
+        stage('Build and Tag Docker Image') {
+            steps {
+                script {
+                    sh 'docker build . -t nginx-docker'
+                    sh 'docker tag nginx-docker yair23/nginx-docker'
+                }
+            }
+        }
+        
+        stage('Push the Docker Image to DockerHub') {
+            steps {
+                script {
+                    withCredentials([usernamePassword(credentialsId: 'dockerhub', usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_PASSWORD')]) {
+                        sh 'docker login -u ${DOCKER_USERNAME} -p ${DOCKER_PASSWORD}'
+                        sh 'docker push yair23/nginx-docker'
+                    }
+                }
+            }
+        }
+
+        stage('Deploy deployment and service file') {
+            steps {
+                script {
+                    withKubeConfig([credentialsId: 'kubernetes_kubeconfig']) {
+                        sh 'kubectl apply -f nginx-deployment.yaml'
+                        sh 'kubectl port-forward --address 0.0.0.0 service/custom-nginx-service 8180:80'
+                    }
+                }
+            }
+        }
+    }
+}
